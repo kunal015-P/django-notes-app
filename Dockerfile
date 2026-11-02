@@ -1,21 +1,52 @@
-FROM python:3.9
+# =====================================
+# Stage 1: Builder
+# =====================================
+FROM python:3.9 AS builder
 
 WORKDIR /app/backend
 
-COPY requirements.txt /app/backend
+# Create virtual environment
+RUN python -m venv /opt/venv
+
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install build dependencies
 RUN apt-get update \
-    && apt-get upgrade -y \
-    && apt-get install -y gcc default-libmysqlclient-dev pkg-config \
+    && apt-get install -y --no-install-recommends \
+       gcc \
+       default-libmysqlclient-dev \
+       pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy requirements
+COPY requirements.txt .
 
-# Install app dependencies
-RUN pip install mysqlclient
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . /app/backend
+
+# =====================================
+# Stage 2: Runtime
+# =====================================
+FROM python:3.9-slim
+
+WORKDIR /app/backend
+
+# Install MySQL runtime library and curl
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       libmariadb3 \
+       curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Python virtual environment
+COPY --from=builder /opt/venv /opt/venv
+
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Copy application
+COPY . .
 
 EXPOSE 8000
-CMD ["python3", "manage.py", "runserver", "0.0.0.0:8000"]
-#RUN python manage.py migrate
-#RUN python manage.py makemigrations
+
+CMD ["gunicorn", "notesapp.wsgi:application", "--bind", "0.0.0.0:8000"]
